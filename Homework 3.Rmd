@@ -1,0 +1,29 @@
+---
+title: "Homework 3"
+author: "wendyxwang"
+date: "Tuesday, February 24, 2015"
+output: html_document
+reader: Ning Li
+---
+
+#Homework 3 Questions:
+Reproduce the results presented in Figure 2 of the following paper: Qian, F., Bolen, C. R., Jing, C., Wang, X., Zheng, W., Zhao, H., et al. (2013). Impaired toll-like receptor 3-mediated immune responses from macrophages of patients chronically infected with hepatitis C virus. Clinical and Vaccine Immunology : CVI, 20(2), 146–155. doi:10.1128/CVI.00530-12
+
+You will have to:
+
+Get the data from GEO
+Normalize the data (if necessary)
+Use limma to test for differential expression
+Display the results using a heatmap [Hint: Use the pheatmap package]
+
+```{r}
+summary(cars)
+```
+
+You can also embed plots, for example:
+
+```{r, echo=FALSE}
+plot(cars)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
