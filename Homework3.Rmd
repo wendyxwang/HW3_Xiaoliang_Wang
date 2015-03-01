@@ -1,0 +1,199 @@
+---
+title: "Homework 3"
+author: "wendyxwang"
+date: "Tuesday, February 24, 2015"
+output: html_document
+reader: Ning Li
+---
+
+#Homework 3 Questions:
+Reproduce the results presented in Figure 2 of the following paper: Qian, F., Bolen, C. R., Jing, C., Wang, X., Zheng, W., Zhao, H., et al. (2013). Impaired toll-like receptor 3-mediated immune responses from macrophages of patients chronically infected with hepatitis C virus. Clinical and Vaccine Immunology : CVI, 20(2), 146–155. doi:10.1128/CVI.00530-12
+
+You will have to:
+
+Get the data from GEO
+Normalize the data (if necessary)
+Use limma to test for differential expression
+Display the results using a heatmap [Hint: Use the pheatmap package]
+
+
+#Answers:
+First, set up some general options and get the packages ready
+
+```{r}
+library("knitr")
+opts_chunk$set(tidy=TRUE, tidy.opts=list(blank=FALSE, width.cutoff=60), cache=TRUE, messages=FALSE)
+
+library(limma)
+library(Biobase)
+library(data.table)
+library(statmod)
+
+#set working directory
+#setwd("E:/Course2015Winter/BIOST578/RStudio clone/HW3_Xiaoliang_Wang")
+```
+
+
+#1. Get data from GEO
+```{r}
+library(GEOquery)
+
+#Get the data that was used in the paper
+GSE40812_set <- getGEO("GSE40812", destdir = "Data/GEO/")[[1]]
+#somehow my code was using the soft file, so I need to force it to use the matrix.gz file
+
+#check out the eSet
+str(GSE40812_set,max.level=2)
+class(GSE40812_set)
+exprs(GSE40812_set)[1:3,1:4]
+
+pData(GSE40812_set)[1:2, ]
+```
+
+
+Clean the pData
+```{r}
+gset <- GSE40812_set
+#Sanitize data
+sanitize_pdata <- function(pd){
+keepCols <- c("title", "geo_accession", "source_name_ch1", "characteristics_ch1", "characteristics_ch1.2")
+pd <- pd[, keepCols]
+colnames(pd) <- c("ptid","GSM_id","source", "infection_status","treatment")
+#we need to substract the id from title for paired comparison later
+pd$ptid <- sapply(strsplit(as.character(pd$ptid),"_"), function(x) x[[2]])
+pd$infection_status <- gsub(".*: ", "", pd$infection_status)
+pd$treatment <- gsub(".*: ", "", pd$treatment)
+
+pd
+}
+
+pData(gset) <- sanitize_pdata(pData(gset))
+
+pData(gset)[1:10,]
+```
+
+We also want to make sure we are only using the Macrophage data
+```{r}
+gset_m <- gset
+macrophage <- pData(gset_m)[pData(gset_m)$source=="Monocyte-derived Macrophage",]
+eset <- gset_m[,rownames(macrophage)]
+```
+Some of the data has been excluded.
+
+
+#2. Normalize the data if necessary
+```{r}
+## From the viewer, it seems like the data has already been normalized.
+#make a boxplot
+boxplot(exprs(eset))
+#seems really comparable
+## So, we do not need to normalize the data
+```
+
+#3. Use limma to test for differential expression
+```{r}
+#design matrix
+mm <- model.matrix(~treatment, data=eset)
+#lmfit
+fit <- lmFit(eset,mm)
+ebay <- eBayes(fit)
+```
+
+Test for the treatment effect
+```{r}
+colnames(fit$coef)
+
+#We have mock as reference treatment, and poly I:C(H) as the other treatment group
+```
+
+**Poly I:C(HMW) vs. MOCK**
+```{r}
+topPoly_H <- topTable(ebay, coef="treatmentPoly IC H", number=Inf, sort.by="none")
+colnames(topPoly_H)
+
+#Accoridng to the paper, use the cutoff values of 1.5 fold change and 0.05 FDR
+summ_topPoly_H <- sum(topPoly_H$adj.P.Val<0.05 & abs(topPoly_H$logFC)>=log2(1.5))
+```
+This returns 1146 significant results at the threshold that we selected.
+
+```{r}
+summ_topPoly_H_pos <- sum(topPoly_H$adj.P.Val<0.05 & topPoly_H$logFC>=log2(1.5))
+```
+753 upregulated responses, and 393 downregulated reponses, which is the same as reported in the original paper.
+
+
+**We then limit our analysis on the responsive genes**
+```{r}
+eset_r <- eset[topPoly_H$adj.P.Val<0.05 & abs(topPoly_H$logFC)>log2(1.5),]
+pData(eset_r)$treatment <- ifelse(eset_r$treatment=="Mock", "Mock", "Poly")
+infect_treat <- factor(paste(eset_r$infection_status,eset_r$treatment,sep=""))
+
+#re-define design matrix
+mm_r<-model.matrix(~0+infect_treat, data=eset_r)
+colnames(mm_r)<-levels(infect_treat)
+
+corfit<-duplicateCorrelation(eset_r, mm_r, block=pData(eset_r)$ptid)
+corfit$consensus
+
+fit_r<-lmFit(eset_r,mm_r, block=pData(eset_r)$ptid, correlation=corfit$consensus)
+ebay_r<-eBayes(fit_r)
+colnames(fit_r)
+```
+
+We also need to definte contrast manually
+```{r}
+#specify contrast
+cm <- makeContrasts(
+  PolyMockforPos=PosPoly-PosMock, 
+  PolyMockforNeg=NegPoly-NegMock,
+  PolyforPosNeg=PosPoly-NegPoly,
+  MockforPosNeg=PosMock-NegMock,
+  All=(PosPoly-PosMock)-(NegPoly-NegMock),
+  levels=mm_r)
+
+#Re-fit the model with specified contrast
+fit_r2<- contrasts.fit(fit_r,cm)
+ebay_r2<- eBayes(fit_r2)
+```
+
+**Check the significant genes**
+```{r}
+top_r <- topTable(ebay_r2, coef="All", number=Inf, sort.by="none", adjust.method="BH")
+
+summ_top_adj <- sum(top_r$adj.P.Val<0.1)
+#no genes were found to be significantly different following FDR corrections
+
+summ_top_r <- sum(top_r$P.Val<0.1)
+#we have 41 probe sets returned.
+```
+Not sure why we have 2 probe sets fewer than reported in the paper
+
+
+#4. Display the results using a heatmap
+```{r}
+library(pheatmap)
+
+#Subset the probes with significant difference in the second analysis
+sign <- eset_r[top_r$P.Val<0.1,]
+```
+
+Draw heatmap
+```{r}
+sign_pd <- pData(sign)
+sign_pd<- sign_pd[order(sign_pd$treatment, sign_pd$infection_status, sign_pd$ptid), ]
+hm_colorder <- rownames(sign_pd)
+hm_colnames <- sign_pd$ptid
+hm_data <- exprs(sign)
+hm_dt <- as.data.table(hm_data)
+rownames(hm_dt) <- rownames(hm_data)
+setcolorder(hm_dt, hm_colorder)
+hm_data <- data.matrix(hm_dt)
+colnames(hm_data) <- hm_colnames
+heatmap(hm_data, Colv=NA)
+```
+
+
+##Citation
+1. Dr. Gottardo BIOST 578A Differential Expression slides
+2. LIMMA userguide
+
