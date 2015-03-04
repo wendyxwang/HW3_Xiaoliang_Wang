@@ -156,9 +156,10 @@ fit_r2<- contrasts.fit(fit_r,cm)
 ebay_r2<- eBayes(fit_r2)
 ```
 
+
 **Check the significant genes**
 ```{r}
-top_r <- topTable(ebay_r2, coef="All", number=Inf, sort.by="none", adjust.method="BH")
+top_r <- topTable(ebay_r2, coef="All", number=Inf, sort.by="none")
 
 summ_top_adj <- sum(top_r$adj.P.Val<0.1)
 #no genes were found to be significantly different following FDR corrections
